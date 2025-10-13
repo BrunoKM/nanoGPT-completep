@@ -21,7 +21,9 @@ do
             n_heads=$((width / head_size))
             min_lr=$(awk "BEGIN {print $lr/10}")
             mup_base_width=256
+            mup_base_depth=2
             mup_width_multiplier=$(echo "scale=8; $width/$mup_base_width" | bc -l)
+            mup_depth_multiplier=$(echo "scale=8; $depth/$mup_base_depth" | bc -l)
             out_dir="completep_examples/depth_transfer_lr_owt/completep_alpha_$depth_alpha_exp/out/width${width}_depth${depth}_seed${seed}_lr${lr}"
             $LAUNCHER train.py \
                 --out_dir=$out_dir \
