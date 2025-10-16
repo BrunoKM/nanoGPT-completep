@@ -146,7 +146,7 @@ class GPT(nn.Module):
         assert config.vocab_size is not None
         assert config.block_size is not None
         self.config = config
-        
+
         self.transformer = nn.ModuleDict(dict(
             wte = nn.Embedding(config.vocab_size, config.n_embd),
             wpe = nn.Embedding(config.block_size, config.n_embd),
@@ -175,7 +175,6 @@ class GPT(nn.Module):
                 ### End muP code ###
             elif pn.endswith('c_proj.weight'):
                 torch.nn.init.normal_(p, mean=0.0, std=config.init_std / math.sqrt(2 * config.n_layer))
-                
 
         # report number of parameters
         print("number of parameters: %.2fM" % (self.get_num_params()/1e6,))
@@ -332,32 +331,49 @@ class GPT(nn.Module):
             width_lr_scaling = (1 / self.config.mup_width_multiplier)
             if self.config.depth_alpha_enabled:
                 ### Begin CompleteP code ###
-                adam_eps *= (1 / self.config.mup_width_multiplier) * (self.config.depth_multiplier ** (-1 * self.config.depth_alpha_exp))
                 optim_groups = [
                     {
-                        'params': emb_params,
-                        'weight_decay': weight_decay,
-                        'lr_scale': 1.0,
+                        "params": emb_params,
+                        "weight_decay": weight_decay,
+                        "lr_scale": 1.0,
+                        "eps": adam_eps,
                     },
                     {
-                        'params': hidden_ln_params,
-                        'weight_decay': 0.0,
-                        'lr_scale': depth_lr_scaling,
+                        "params": hidden_ln_params,
+                        "weight_decay": 0.0,
+                        "lr_scale": depth_lr_scaling,
+                        "eps": adam_eps
+                        * (
+                            self.config.depth_multiplier
+                            ** (-1 * self.config.depth_alpha_exp)
+                        ),
                     },
                     {
-                        'params': hidden_weight_params,
-                        'weight_decay': weight_decay / width_lr_scaling,
-                        'lr_scale': width_lr_scaling * depth_lr_scaling,
+                        "params": hidden_weight_params,
+                        "weight_decay": weight_decay / width_lr_scaling,
+                        "lr_scale": width_lr_scaling * depth_lr_scaling,
+                        "eps": adam_eps
+                        * (1 / self.config.mup_width_multiplier)
+                        * (
+                            self.config.depth_multiplier
+                            ** (-1 * self.config.depth_alpha_exp)
+                        ),
                     },
                     {
-                        'params': hidden_bias_params,
-                        'weight_decay': 0.0,
-                        'lr_scale': depth_lr_scaling,
+                        "params": hidden_bias_params,
+                        "weight_decay": 0.0,
+                        "lr_scale": depth_lr_scaling,
+                        "eps": adam_eps
+                        * (
+                            self.config.depth_multiplier
+                            ** (-1 * self.config.depth_alpha_exp)
+                        ),
                     },
                     {
-                        'params': final_ln_params,
-                        'weight_decay': 0.0,
-                        'lr_scale': 1.0,
+                        "params": final_ln_params,
+                        "weight_decay": 0.0,
+                        "lr_scale": 1.0,
+                        "eps": adam_eps,
                     },
                 ]
                 ### End CompleteP code ###
@@ -365,29 +381,34 @@ class GPT(nn.Module):
                 ### Begin muP code ###
                 optim_groups = [
                     {
-                        'params': emb_params,
-                        'weight_decay': weight_decay,
-                        'lr_scale': 1.0,
+                        "params": emb_params,
+                        "weight_decay": weight_decay,
+                        "lr_scale": 1.0,
+                        "eps": adam_eps,
                     },
                     {
-                        'params': hidden_ln_params,
-                        'weight_decay': 0.0,
-                        'lr_scale': 1.0,
+                        "params": hidden_ln_params,
+                        "weight_decay": 0.0,
+                        "lr_scale": 1.0,
+                        "eps": adam_eps,
                     },
                     {
-                        'params': hidden_weight_params,
-                        'weight_decay': weight_decay,
-                        'lr_scale': width_lr_scaling,
+                        "params": hidden_weight_params,
+                        "weight_decay": weight_decay,
+                        "lr_scale": width_lr_scaling,
+                        "eps": adam_eps * (1 / self.config.mup_width_multiplier),
                     },
                     {
-                        'params': hidden_bias_params,
-                        'weight_decay': 0.0,
-                        'lr_scale': 1.0,
+                        "params": hidden_bias_params,
+                        "weight_decay": 0.0,
+                        "lr_scale": 1.0,
+                        "eps": adam_eps,
                     },
                     {
-                        'params': final_ln_params,
-                        'weight_decay': 0.0,
-                        'lr_scale': 1.0,
+                        "params": final_ln_params,
+                        "weight_decay": 0.0,
+                        "lr_scale": 1.0,
+                        "eps": adam_eps,
                     },
                 ]
                 ### End muP code ###
@@ -406,7 +427,9 @@ class GPT(nn.Module):
         fused_available = 'fused' in inspect.signature(torch.optim.AdamW).parameters
         use_fused = fused_available and device_type == 'cuda'
         extra_args = dict(fused=True) if use_fused else dict()
-        optimizer = torch.optim.AdamW(optim_groups, lr=learning_rate, betas=betas, eps=adam_eps, **extra_args)
+        optimizer = torch.optim.AdamW(
+            optim_groups, lr=learning_rate, betas=betas, **extra_args
+        )
         print(f"using fused AdamW: {use_fused}")
 
         return optimizer
